@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+build/
+dist/
+wheels/
+*.egg
+
+# Virtual environments
+# (uv.lock and .python-version are intentionally tracked — do not ignore)
+.venv/
+venv/
+ENV/
+.env
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+
+# Editors / tools / OS
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*~
+
+# Documentation builds
+site/
+docs/_build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# SLURM / cluster job logs
+*.out
+slurm-*.out
+*.log
+
+# scratch/ — only the demo scripts (scratch/*.py) are part of the
+# release; every generated output (figures, arrays, text reports) is
+# ignored. scratch holds no tracked .txt, so ignore them all.
+scratch/**/*.png
+scratch/**/*.npz
+scratch/**/*.pt
+scratch/**/*.pdf
+scratch/**/*.txt
+scratch/
+
+examples/**/demo_outputs*
+
+# Neural data files (keep large recordings out of the repo)
+*.pkl
+# Exception: the V1/V2 demo data shipped with the V1V2 examples.
+!data/demo_v1v2_data.pkl
+
+# Internal dev files — not part of the public release
+CLAUDE.md
+python-pytorch-multi-brain-region-cheerful-clarke.md
+job.sh
+job_v1v2.sh
+job_test.sh
+scripts/
+# Test for scripts/check_no_trial_loops.py — excluded with scripts/ itself.
+tests/unit/test_check_no_trial_loops.py
+profile_adm_vs_dlag_ssm.py
+tmp*/

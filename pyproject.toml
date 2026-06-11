@@ -1,0 +1,133 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mbrila"
+version = "0.0.1"
+description = "Multiple Brain Region Interaction using Latent Analysis — unified PyTorch library for multi-region neural latent variable models."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12,<3.14"
+authors = [{ name = "mbrila contributors" }]
+keywords = ["neuroscience", "gaussian-process", "state-space-model", "latent-variable", "multi-region", "pytorch"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "torch>=2.5",
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "scikit-learn>=1.5",
+    "tqdm>=4.66",
+    "matplotlib>=3.10.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "hypothesis>=6.100",
+]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
+]
+
+[project.urls]
+Homepage = "https://github.com/mbrila/mbrila"
+Issues = "https://github.com/mbrila/mbrila/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mbrila"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",        # pycodestyle
+    "F",             # pyflakes
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "N",             # pep8-naming
+    "SIM",           # simplify
+    "RUF",           # ruff-specific
+    "TID",           # tidy-imports
+    "PERF",          # perflint (catches inefficient loops)
+    "PLR",           # pylint refactor
+]
+ignore = [
+    "E501",          # let formatter handle line length
+    "PLR0913",       # functions with many args (model classes need them)
+    "PLR2004",       # magic numbers in tests
+    "N803", "N806",  # capital-letter math variables (C, R, Y, etc.) are standard in this domain
+    "N802",          # likewise for fn names like compute_K_big
+    "RUF001", "RUF002", "RUF003",  # ambiguous unicode chars — math docs use × ⊗ – etc. intentionally
+    "PLR0915",       # too many statements (Kalman filter has many)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B", "PLR", "N"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+no_implicit_reexport = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "tqdm.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: requires CUDA",
+    "recovery: end-to-end parameter recovery test (slow)",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:torch.*",
+]
+
+[tool.coverage.run]
+source = ["src/mbrila"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@overload",
+]
