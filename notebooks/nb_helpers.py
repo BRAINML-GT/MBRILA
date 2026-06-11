@@ -372,20 +372,14 @@ def restrict_to_ard_active(
 ) -> tuple[np.ndarray, np.ndarray, int, dict]:
     """For ARD models (mDLAG): subset fitted to the active columns matched
     to truth, then permute so fitted column ``i`` corresponds to truth
-    column ``i``.
+    column ``i``. The truth-side subset (in ``info["truth_obs_subset"]``
+    / ``info["truth_delay_subset"]``) is what you should overlay against.
 
-    Returns ``(fitted_obs_sub, fitted_delay_sub, K_match, info)``:
-
-    * ``fitted_obs_sub`` shape ``(B, T, R · K_match)``
-    * ``fitted_delay_sub`` shape ``(T, R-1, K_match)``
-    * ``K_match`` — number of active columns matched to truth
-      (``min(n_active, k_true)``).
-    * ``info`` — dict from :func:`demo_common.ard_aware_delay_rmse`
-      (plus the truth-side column subset used for matching).
-
-    Use the returned arrays with ``n_across=K_match`` in
-    :func:`plot_delay_comparison` / :func:`plot_latent_comparison` so
-    the ARD-pruned columns are skipped (they have no truth counterpart).
+    Thin wrapper around :func:`examples.synthetic.demo_common.restrict_to_ard_active`
+    so notebooks and CLI demos share one implementation. The notebook
+    return signature (``fitted_obs_sub, fitted_delay_sub, K_match,
+    info``) is kept for backward compatibility with existing
+    notebook cells.
     """
     import sys
     from pathlib import Path
@@ -395,104 +389,25 @@ def restrict_to_ard_active(
         sys.path.insert(0, str(examples_dir))
     import demo_common as demo
 
-    info = demo.ard_aware_delay_rmse(
+    (
+        _truth_obs_sub,
+        _truth_delay_sub,
+        fitted_obs_sub,
+        fitted_delay_sub,
+        K_match,
+        info_out,
+    ) = demo.restrict_to_ard_active(
+        truth_obs,
         truth_delay,
+        fitted_obs,
         fitted_delay,
         alpha_mean,
         n_regions=n_regions,
+        k_true=k_true,
+        k_init=k_init,
+        n_within=n_within,
         alpha_prune_ratio=alpha_prune_ratio,
     )
-    matched_active = list(info["matched_active"])  # fitted column indices
-    matched_truth = list(info["matched_truth"])  # truth column indices
-    K_match = len(matched_active)
-
-    if K_match == 0:
-        # Defensive: no active columns. Return empty arrays.
-        empty_obs = np.zeros((*fitted_obs.shape[:2], 0), dtype=fitted_obs.dtype)
-        empty_delay = np.zeros((*fitted_delay.shape[:2], 0), dtype=fitted_delay.dtype)
-        return empty_obs, empty_delay, 0, info
-
-    # Subset fitted delay to active matched columns.
-    fitted_delay_sub = fitted_delay[..., matched_active]
-
-    # Subset fitted_obs: it's region-major with K_init across slots per region,
-    # plus n_within within slots. Keep only the matched-active across slots.
-    npr_init = k_init + n_within
-    npr_match = K_match + n_within
-    B, T = fitted_obs.shape[:2]
-    fitted_obs_sub = np.zeros((B, T, n_regions * npr_match), dtype=fitted_obs.dtype)
-    for r in range(n_regions):
-        # Copy active across slots (in matched_active order).
-        for i, k_fit in enumerate(matched_active):
-            src = r * npr_init + k_fit
-            dst = r * npr_match + i
-            fitted_obs_sub[..., dst] = fitted_obs[..., src]
-        # Copy all within slots verbatim (mDLAG has K_w=0; this is a no-op there).
-        for w in range(n_within):
-            src = r * npr_init + k_init + w
-            dst = r * npr_match + K_match + w
-            fitted_obs_sub[..., dst] = fitted_obs[..., src]
-
-    # Permute truth side too so truth column ``i`` is matched_truth[i].
-    truth_delay_sub = truth_delay[..., matched_truth]
-    npr_truth = k_true + n_within
-    truth_obs_sub = np.zeros((B, T, n_regions * npr_match), dtype=truth_obs.dtype)
-    for r in range(n_regions):
-        for i, k_tr in enumerate(matched_truth):
-            src = r * npr_truth + k_tr
-            dst = r * npr_match + i
-            truth_obs_sub[..., dst] = truth_obs[..., src]
-        for w in range(n_within):
-            src = r * npr_truth + k_true + w
-            dst = r * npr_match + K_match + w
-            truth_obs_sub[..., dst] = truth_obs[..., src]
-
-    # Trace-based re-alignment over the K_match-dim subspace. The delay
-    # matcher above optimises pair-RMSE over (T, region pair, latent);
-    # but two latents whose deltas happen to be close (in V1V2 / heavily
-    # ARD-pruned scenarios this is common) can land on a delay pairing
-    # that LOOKS swapped in the latent-trace plot. align_across_permutation
-    # picks the permutation that maximises mean |corr| of the observable
-    # trace across (B, T, R) — i.e. the pairing a human reading the
-    # latent figure would assign. Apply it on top of the delay restriction.
-    if K_match > 1:
-        trace_perm = demo.align_across_permutation(
-            fitted_obs_sub,
-            truth_obs_sub,
-            n_regions=n_regions,
-            n_across=K_match,
-            n_within=n_within,
-        )
-        if trace_perm != tuple(range(K_match)):
-            fitted_obs_sub, fitted_delay_sub = demo.apply_across_permutation(
-                fitted_obs_sub,
-                fitted_delay_sub,
-                trace_perm,
-                n_regions=n_regions,
-                n_across=K_match,
-                n_within=n_within,
-            )
-            # matched_active records the fitted column index per displayed
-            # slot — update it so the printed "ARD active columns matched
-            # to truth: ..." stays accurate after the re-permutation.
-            matched_active = [matched_active[trace_perm[i]] for i in range(K_match)]
-            info["matched_active"] = np.array(matched_active)
-            # Recompute delay RMSE on the trace-aligned pairing so the
-            # reported number matches the figure.
-            T_d = int(fitted_delay_sub.shape[0])
-            truth_full = np.concatenate([np.zeros((T_d, 1, K_match)), truth_delay_sub], axis=1)
-            fit_full = np.concatenate([np.zeros((T_d, 1, K_match)), fitted_delay_sub], axis=1)
-            sq = []
-            for i_r in range(n_regions):
-                for j_r in range(i_r + 1, n_regions):
-                    d = (fit_full[:, j_r] - fit_full[:, i_r]) - (truth_full[:, j_r] - truth_full[:, i_r])
-                    sq.append(float((d**2).mean()))
-            info["rmse"] = float(np.sqrt(np.mean(sq)))
-
-    info_out = dict(info)
-    info_out["truth_obs_subset"] = truth_obs_sub
-    info_out["truth_delay_subset"] = truth_delay_sub
-    info_out["K_match"] = K_match
     return fitted_obs_sub, fitted_delay_sub, K_match, info_out
 
 

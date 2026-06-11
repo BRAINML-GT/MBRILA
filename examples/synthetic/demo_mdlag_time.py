@@ -158,31 +158,11 @@ def main() -> None:
     else:
         extra = f"max_alpha_per_col={max_alpha.tolist() if max_alpha is not None else 'N/A'}"
 
-    # Pad truth (K_true) to model K_init for the plotting helper.
-    import numpy as np
-
-    truth_padded = dict(truth)
-    if truth["delay"].shape[-1] < args.k_init:
-        pad_n = args.k_init - truth["delay"].shape[-1]
-        truth_padded["delay"] = np.concatenate(
-            [truth["delay"], np.zeros((truth["delay"].shape[0], truth["delay"].shape[1], pad_n))],
-            axis=-1,
-        )
-    if args.k_init > args.k_true:
-        B = truth["observable"].shape[0]
-        T = truth["observable"].shape[1]
-        R = len(scenario.y_dims)
-        truth_grouped = truth["observable"].reshape(B, T, R, args.k_true)
-        pad = np.zeros((B, T, R, args.k_init - args.k_true))
-        truth_padded["observable"] = np.concatenate([truth_grouped, pad], axis=-1).reshape(
-            B, T, R * args.k_init
-        )
-    truth_padded["n_across"] = args.k_init
 
     record = demo.write_method_outputs(
         method_name="mdlag_time",
         model_label="mDLAG (time-domain GP)",
-        truth=truth_padded,
+        truth=truth,
         fitted_delay=fitted_delay,
         fitted_obs=fitted_obs,
         fitted_y=fitted_y,

@@ -177,41 +177,10 @@ def main() -> None:
     else:
         extra = f"max_alpha_per_col={max_alpha.tolist() if max_alpha is not None else 'N/A'}"
 
-    # Pad ground-truth delay to K_init columns (zeros for the spurious
-    # columns) so the pairwise plot helper has matching shapes.
-    truth_delay_padded = truth["delay"]
-    if truth_delay_padded.shape[-1] < args.k_init:
-        pad_n = args.k_init - truth_delay_padded.shape[-1]
-        import numpy as np
-
-        truth_delay_padded = np.concatenate(
-            [truth_delay_padded, np.zeros((truth_delay_padded.shape[0], truth_delay_padded.shape[1], pad_n))],
-            axis=-1,
-        )
-    # Also pad truth_observable so latent-trace plot has K_init columns.
-    truth_obs_padded = truth["observable"]
-    if args.k_init > args.k_true:
-        import numpy as np
-
-        # Each region's observable block has K_true columns; insert
-        # K_init - K_true zero columns per region after them. Since
-        # n_within = 0 here, the truth observable is shaped (B, T, R*K_true).
-        B = truth_obs_padded.shape[0]
-        T = truth_obs_padded.shape[1]
-        R = len(scenario.y_dims)
-        truth_obs_grouped = truth_obs_padded.reshape(B, T, R, args.k_true)
-        pad = np.zeros((B, T, R, args.k_init - args.k_true))
-        truth_obs_padded = np.concatenate([truth_obs_grouped, pad], axis=-1).reshape(B, T, R * args.k_init)
-
-    truth_padded = dict(truth)
-    truth_padded["delay"] = truth_delay_padded
-    truth_padded["observable"] = truth_obs_padded
-    truth_padded["n_across"] = args.k_init
-
     record = demo.write_method_outputs(
         method_name="mdlag_ssm",
         model_label="mDLAG-SSM",
-        truth=truth_padded,
+        truth=truth,
         fitted_delay=fitted_delay,
         fitted_obs=fitted_obs,
         fitted_y=fitted_y,

@@ -881,6 +881,111 @@ def apply_across_permutation(
     return obs_aligned, delay_aligned
 
 
+def restrict_to_ard_active(
+    truth_obs: np.ndarray,
+    truth_delay: np.ndarray,
+    fitted_obs: np.ndarray,
+    fitted_delay: np.ndarray,
+    alpha_mean: np.ndarray,
+    *,
+    n_regions: int,
+    k_true: int,
+    k_init: int,
+    n_within: int = 0,
+    alpha_prune_ratio: float = 10.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, dict]:
+    """For ARD models (mDLAG): subset fitted to the ARD-active columns
+    matched to truth, then permute so fitted column ``i`` corresponds to
+    truth column ``i``. The matching truth-side subset is returned too so
+    delay / latent overlays line up.
+
+    Returns ``(truth_obs_sub, truth_delay_sub, fitted_obs_sub,
+    fitted_delay_sub, K_match, info)``:
+
+    * ``*_sub`` arrays carry only ``K_match = len(matched_active)``
+      across-columns.
+    * ``info`` is the dict from :func:`ard_aware_delay_rmse` augmented
+      with the truth-side subset used for matching.
+    """
+    info = ard_aware_delay_rmse(
+        truth_delay,
+        fitted_delay,
+        alpha_mean,
+        n_regions=n_regions,
+        alpha_prune_ratio=alpha_prune_ratio,
+    )
+    matched_active = list(info["matched_active"])  # fitted col indices
+    matched_truth = list(info["matched_truth"])  # truth col indices
+    K_match = len(matched_active)
+
+    if K_match == 0:
+        empty_obs = np.zeros((*fitted_obs.shape[:2], 0), dtype=fitted_obs.dtype)
+        empty_delay = np.zeros((*fitted_delay.shape[:2], 0), dtype=fitted_delay.dtype)
+        return empty_obs, empty_delay, empty_obs, empty_delay, 0, info
+
+    fitted_delay_sub = fitted_delay[..., matched_active]
+    truth_delay_sub = truth_delay[..., matched_truth]
+
+    # Subset fitted_obs / truth_obs: region-major, K across slots per region
+    # plus n_within within slots. Keep only the matched-active across slots.
+    npr_init = k_init + n_within
+    npr_truth = k_true + n_within
+    npr_match = K_match + n_within
+    B, T = fitted_obs.shape[:2]
+    fitted_obs_sub = np.zeros((B, T, n_regions * npr_match), dtype=fitted_obs.dtype)
+    truth_obs_sub = np.zeros((B, T, n_regions * npr_match), dtype=truth_obs.dtype)
+    for r in range(n_regions):
+        for i, k_fit in enumerate(matched_active):
+            fitted_obs_sub[..., r * npr_match + i] = fitted_obs[..., r * npr_init + k_fit]
+        for i, k_tr in enumerate(matched_truth):
+            truth_obs_sub[..., r * npr_match + i] = truth_obs[..., r * npr_truth + k_tr]
+        for w in range(n_within):
+            fitted_obs_sub[..., r * npr_match + K_match + w] = fitted_obs[..., r * npr_init + k_init + w]
+            truth_obs_sub[..., r * npr_match + K_match + w] = truth_obs[..., r * npr_truth + k_true + w]
+
+    # Trace-based re-alignment over the K_match-dim subspace — the delay
+    # matcher above optimises pair-RMSE; two latents whose δ happen to
+    # be close can land on a delay pairing that looks swapped in the
+    # latent-trace plot. Realign by trace correlation (the pairing a
+    # human reading the figure would assign).
+    if K_match > 1:
+        trace_perm = align_across_permutation(
+            fitted_obs_sub,
+            truth_obs_sub,
+            n_regions=n_regions,
+            n_across=K_match,
+            n_within=n_within,
+        )
+        if trace_perm != tuple(range(K_match)):
+            fitted_obs_sub, fitted_delay_sub = apply_across_permutation(
+                fitted_obs_sub,
+                fitted_delay_sub,
+                trace_perm,
+                n_regions=n_regions,
+                n_across=K_match,
+                n_within=n_within,
+            )
+            matched_active = [matched_active[trace_perm[i]] for i in range(K_match)]
+            info["matched_active"] = np.array(matched_active)
+            # Recompute delay RMSE on the trace-aligned pairing so the
+            # reported number matches the figure.
+            T_d = int(fitted_delay_sub.shape[0])
+            truth_full = np.concatenate([np.zeros((T_d, 1, K_match)), truth_delay_sub], axis=1)
+            fit_full = np.concatenate([np.zeros((T_d, 1, K_match)), fitted_delay_sub], axis=1)
+            sq = []
+            for i_r in range(n_regions):
+                for j_r in range(i_r + 1, n_regions):
+                    d = (fit_full[:, j_r] - fit_full[:, i_r]) - (truth_full[:, j_r] - truth_full[:, i_r])
+                    sq.append(float((d**2).mean()))
+            info["rmse"] = float(np.sqrt(np.mean(sq)))
+
+    info_out = dict(info)
+    info_out["truth_obs_subset"] = truth_obs_sub
+    info_out["truth_delay_subset"] = truth_delay_sub
+    info_out["K_match"] = K_match
+    return truth_obs_sub, truth_delay_sub, fitted_obs_sub, fitted_delay_sub, K_match, info_out
+
+
 def latent_sign_to_truth(est: np.ndarray, truth: np.ndarray) -> float:
     """Return +1 / -1 — the sign that best aligns ``est`` to ``truth``.
 
@@ -1268,28 +1373,66 @@ def write_method_outputs(
 
     delay_rmse = pair_rmse(fitted_delay, truth["delay"], n_regions) if delay_layouts_match else float("nan")
 
+    # ---- ARD-aware subset for plotting (mDLAG only) ----
+    # For ARD models, restrict delay / latent overlays to the matched
+    # active columns so pruned-and-noise latents don't clutter the
+    # figures. ARD path bypasses the layout-match check (it handles
+    # K_true ≠ K_init naturally by slicing both sides to K_match);
+    # non-ARD methods still require matching layouts.
+    plot_truth_delay = truth["delay"]
+    plot_truth_obs = truth["observable"]
+    plot_fitted_delay = fitted_delay
+    plot_fitted_obs = fitted_obs
+    plot_n_across = n_across
+    plot_delay_rmse = delay_rmse
+    ard_was_applied = False
+    if alpha_mean is not None and n_across > 0:
+        # ``n_across`` is the model's K_init; ``truth["n_across"]`` is K_true.
+        (
+            plot_truth_obs,
+            plot_truth_delay,
+            plot_fitted_obs,
+            plot_fitted_delay,
+            plot_n_across,
+            ard_match_info,
+        ) = restrict_to_ard_active(
+            truth["observable"],
+            truth["delay"],
+            fitted_obs,
+            fitted_delay,
+            alpha_mean,
+            n_regions=n_regions,
+            k_true=int(truth["n_across"]),
+            k_init=n_across,
+            n_within=n_within,
+        )
+        plot_delay_rmse = float(ard_match_info.get("rmse", delay_rmse))
+        ard_was_applied = True
+
     plot_convergence(
         score_trace,
         out_dir / "convergence.png",
         ylabel=score_ylabel,
         title=f"{model_label} — {score_ylabel} convergence",
     )
-    if delay_layouts_match:
+    can_plot_delay = (delay_layouts_match or ard_was_applied) and plot_n_across > 0
+    can_plot_latent = (latent_layouts_match or ard_was_applied) and plot_n_across > 0
+    if can_plot_delay:
         plot_delay_pairs(
-            truth["delay"],
-            fitted_delay,
+            plot_truth_delay,
+            plot_fitted_delay,
             n_regions,
-            n_across,
+            plot_n_across,
             str(out_dir / "delay_lat{lat}.png"),
             model_label=model_label,
-            rmse=delay_rmse,
+            rmse=plot_delay_rmse,
         )
-    if latent_layouts_match:
+    if can_plot_latent:
         plot_latent_traces(
-            truth["observable"],
-            fitted_obs,
+            plot_truth_obs,
+            plot_fitted_obs,
             n_regions=n_regions,
-            n_across=n_across,
+            n_across=plot_n_across,
             n_within=n_within,
             out_dir=out_dir,
             prefix="",

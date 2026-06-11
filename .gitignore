@@ -75,3 +75,4 @@ scripts/
 tests/unit/test_check_no_trial_loops.py
 profile_adm_vs_dlag_ssm.py
 tmp*/
+notebooks/_test/

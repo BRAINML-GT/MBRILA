@@ -181,7 +181,9 @@ def _plot_bars(
             color=["steelblue", "darkred", "darkgreen", "darkorange"][: len(labels)],
         )
         ax.set_xticks(x)
-        ax.set_xticklabels(labels)
+        # Rotate labels so 7-way model names (adm, dlag, dlag_ssm, ...)
+        # don't overlap on the narrow panel width.
+        ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=8)
         ax.set_title(key, fontsize=9)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
