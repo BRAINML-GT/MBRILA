@@ -131,23 +131,36 @@ interaction and contribute them back.
 
 ## Installation
 
-`mbrila` targets Python 3.12 (PyTorch does not yet support 3.13) and is
-managed with [`uv`](https://docs.astral.sh/uv/):
+`mbrila` targets Python 3.12 (PyTorch does not yet support 3.13). The
+commands below use [`uv`](https://docs.astral.sh/uv/) for dependency
+management — a fast modern alternative to `pip`. If you don't have
+`uv`, you can substitute `pip` / `pip install -e .` in every command
+below; both work.
+
+**To use the library in your own code:**
+
+```bash
+uv pip install mbrila
+# or
+pip install mbrila
+```
+
+You can then `import mbrila` and build / fit models, swap kernels, etc.
+The shipped demo scripts, Jupyter notebooks, and V1/V2 data file are
+**not** bundled in the PyPI package — for those you need to clone the
+repo.
+
+**To run the shipped demos, notebooks, and use the V1/V2 data:**
 
 ```bash
 git clone https://github.com/BRAINML-GT/MBRILA.git mbrila
 cd mbrila
 uv sync              # runtime dependencies
 uv sync --extra dev  # + dev tools (pytest, ruff, mypy)
+# or, with plain pip:  pip install -e .[dev]
 ```
 
-Or with plain pip:
-
-```bash
-pip install -e .
-```
-
-Default device is CUDA when available, CPU otherwise; nothing is
+Default device is CUDA(GPU) when available, CPU otherwise; nothing is
 hard-coded — pass `--device cpu` or `device="cpu"` to force CPU.
 
 ### Quickstart

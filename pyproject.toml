@@ -4,19 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mbrila"
-version = "0.0.1"
+version = "0.1.0"
 description = "Multiple Brain Region Interaction using Latent Analysis — unified PyTorch library for multi-region neural latent variable models."
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.12,<3.14"
-authors = [{ name = "mbrila contributors" }]
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "Weihan Li", email = "weihanli@gatech.edu" }]
 keywords = ["neuroscience", "gaussian-process", "state-space-model", "latent-variable", "multi-region", "pytorch"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
@@ -44,8 +43,9 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mbrila/mbrila"
-Issues = "https://github.com/mbrila/mbrila/issues"
+Homepage = "https://github.com/BRAINML-GT/MBRILA"
+Issues = "https://github.com/BRAINML-GT/MBRILA/issues"
+Repository = "https://github.com/BRAINML-GT/MBRILA"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mbrila"]
