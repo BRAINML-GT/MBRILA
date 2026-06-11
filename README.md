@@ -30,28 +30,30 @@ Kalman scan** for inference.
 
 ## What you can do with this library
 
-- **Drop in any of the standard methods** — ADM, DLAG (exact GP),
-  DLAG-SSM, mDLAG (time-domain / frequency-domain circulant /
-  Kalman-SSM), GPFA-SSM, free LDS — with a single `model = Preset(...)`
-  call and a unified `model.fit(data)` interface.
-- **Swap GP kernels** without touching the inference engine. Any
-  stationary scalar kernel — MOSE/RBF, Matérn-1/2/3/2/5/2, or your own
-  `BaseKernel` subclass — slots in via `kernel_factory_*` callables.
-  Matérn-5/2 even has an **exact** finite-state SDE form (no AR(P)
-  approximation needed); see [`notebooks/synthetic/demo_matern.ipynb`](notebooks/synthetic/demo_matern.ipynb).
-- **Write your own kernel in ~10 lines** — implement `cov(τ)` on a
-  `BaseKernel` subclass and plug it into every GP-prior model. See
-  [`notebooks/synthetic/demo_custom_kernel.ipynb`](notebooks/synthetic/demo_custom_kernel.ipynb)
-  for a Rational-Quadratic-kernel tutorial.
+- **Drop in any standard method** — `ADM(...)`, `DLAG(...)`,
+  `MDLAG(...)`, `GPFA(...)`, or `LDS(...)`, all with the same
+  `model.fit(data)` interface. Most presets ship in multiple engine
+  variants (dense exact GP / GP-SSM / frequency-domain circulant) —
+  see the [model presets table](#model-presets) below.
+- **Pick or design any stationary GP kernel** — MOSE/RBF (the
+  default in ADM, DLAG, mDLAG, GPFA) and Matérn (½, 3/2, 5/2) ship
+  built-in. Matérn variants have an **exact** finite-state SDE form
+  (no AR(P) approximation needed) — see
+  [`demo_matern.ipynb`](notebooks/synthetic/demo_matern.ipynb) for
+  the exact-SDE path. Or write your own kernel in ~10 lines by
+  subclassing `BaseKernel` and implementing `cov(τ)` — see
+  [`demo_custom_kernel.ipynb`](notebooks/synthetic/demo_custom_kernel.ipynb)
+  for a Rational Quadratic kernel walkthrough.
 - **Compare methods fairly** — every method ships with the same
-  evaluation pipeline (delay-recovery RMSE on synthetic, NLB-style
-  held-out-neuron co-smoothing on real data, both with multi-seed
-  averaging).
-- **Pick speed vs accuracy per use case** — exact GP (`O(T³)`,
-  reference) ↔ SSM-GP via Markov AR(P) lift (`O(log T)` on GPU) ↔
-  frequency-domain circulant approximation.
+  evaluation pipeline: delay-recovery RMSE on synthetic data (with
+  known ground-truth delay), held-out-neuron co-smoothing on real
+  data, both with multi-seed averaging.
+- **Pick speed vs accuracy per use case** — dense exact GP (`O(T³)`,
+  the reference implementation) · GP-SSM (`O(log T)` on GPU, slight
+  AR(P) approximation) · frequency-domain circulant (FFT-diagonalised
+  circulant approximation of the kernel).
 - **Browse results in Jupyter** — every method has a self-contained
-  notebook (see [`notebooks/`](notebooks/)) with results baked in.
+  notebook (see [`notebooks/`](notebooks/)) with figures baked in.
 
 All operations are **fully batched over trials** and **pure PyTorch**
 — no per-trial Python loops, GPU by
@@ -68,13 +70,13 @@ families:
 | Latent prior | What it assumes | Inference cost | Engine class |
 |---|---|---|---|
 | **Dense exact GP** | latent ~ GP with a stationary kernel; covariance is a full `T × T` matrix | `O(T³)` per EM iter | `ExactEMEngine` · `VEMARDEngine` (ARD) · `VEMARDFreqEngine` (circulant ≈ dense in freq domain) |
-| **SSM-GP via AR(P) lift** | latent ~ same GP, **approximated** by a `P`-step Markov state-space model | `O(log T)` (parallel scan) | `KalmanEMEngine` · `VEMKalmanARDEngine` (ARD) |
-| **SSM-GP via exact SDE** | latent ~ Matérn-`p/2` GP, **exactly** representable as a finite-state SDE | `O(log T)` | `KalmanEMEngine` |
+| **GP-SSM via AR(P) lift** | latent ~ same GP, **approximated** by a `P`-step Markov state-space model | `O(log T)` (parallel scan) | `KalmanEMEngine` · `VEMKalmanARDEngine` (ARD) |
+| **GP-SSM via exact SDE** | latent ~ Matérn-`p/2` GP, **exactly** representable as a finite-state SDE | `O(log T)` | `KalmanEMEngine` |
 | **Free SSM** | latent ~ generic linear-Gaussian Markov chain, learnable `(A, Q)`, no GP / no kernel | `O(log T)` | `KalmanEMEngine` |
 
 Within a chosen latent prior, the model is further specified by:
 
-- **GP kernel** (only for the three GP families): MOSE/RBF, Matérn,
+- **GP kernel**: MOSE/RBF, Matérn,
   or any user-defined `BaseKernel`. **The kernel also encodes the
   inter-region communication delay** through its lagged covariance
   `cov(τ + δ_j − δ_i)`. The delay parameterisation — `NoDelay`,
@@ -106,13 +108,16 @@ A "method" is just a name for a configured combination. The headline
 presets are all the field-known multi-region methods, plus their
 SSM-approximate cousins:
 
-| Preset | Latent prior class | Delay | Engine class | Notes |
-|---|---|---|---|---|
-| **`ADM`** | **SSM-GP** (AR(P) lift of MOSE/RBF) | time-varying `δ(t)` | `KalmanEMEngine` | `O(log T)` parallel scan |
-| **`DLAG`** | dense exact GP (MOSE/RBF) | constant `δ` | `ExactEMEngine` (default) **or** `KalmanEMEngine` | the second route gives a DLAG-SSM AR(P) approximation |
-| **`MDLAG`** | dense exact GP + **ARD** | constant `δ` | `VEMARDEngine` (time) / `VEMARDFreqEngine` (freq, ~22× faster) / `VEMKalmanARDEngine` (SSM) | ARD prunes redundant latents automatically |
-| **`GPFA-SSM`** | SSM-GP, **no delay** | — | `KalmanEMEngine` | SSM (AR(P) lift) approximation of GPFA; shared-only baseline (`n_within = 0`). |
-| **`LDS`** | **free SSM** (no GP prior) | — | `KalmanEMEngine` | no-kernel baseline |
+| Preset | Engine variant | Latent prior class | Delay | Engine class | Notes |
+|---|---|---|---|---|---|
+| **`ADM`** | — | **GP-SSM** (AR(P) lift of MOSE/RBF) | time-varying `δ(t)` | `KalmanEMEngine` | `O(log T)` parallel scan |
+| **`DLAG`** | `engine="exact"` (default) | **dense exact GP** | constant `δ` | `ExactEMEngine` | `O(T³)` reference, no approximation |
+| **`DLAG`** | `engine="kalman"` | **GP-SSM** (AR(P) lift) | constant `δ` | `KalmanEMEngine` | DLAG-SSM: same model, `O(log T)` inference |
+| **`MDLAG`** | `engine="time"` (default) | **dense exact GP + ARD** | constant `δ` | `VEMARDEngine` | time-domain VEM with ARD pruning |
+| **`MDLAG`** | `engine="freq"` | **dense exact GP + ARD** (circulant ≈ dense in freq) | constant `δ` | `VEMARDFreqEngine` | frequency-domain circulant approximation |
+| **`MDLAG`** | `engine="kalman"` | **GP-SSM + ARD** | constant `δ` | `VEMKalmanARDEngine` | mDLAG-SSM: `O(log T)` ARD inference |
+| **`GPFA-SSM`** | — | **GP-SSM**, no delay | — | `KalmanEMEngine` | shared-only baseline (`n_within = 0`) |
+| **`LDS`** | — | **free SSM** (no GP prior) | — | `KalmanEMEngine` | no-kernel baseline |
 
 The framework is **user-extensible** along the kernel dimension: writing a new stationary
 kernel by subclassing `BaseKernel` and supplying `cov(τ)` lets you plug
@@ -199,42 +204,58 @@ defaults).
 
 ```
 notebooks/
-├── synthetic/      # ground-truth-delay recovery on synthetic GP data
-│   ├── demo_adm.ipynb
-│   ├── demo_dlag.ipynb              (exact-GP engine)
-│   ├── demo_dlag_ssm.ipynb          (SSM-GP engine)
-│   ├── demo_mdlag_time.ipynb / demo_mdlag_freq.ipynb / demo_mdlag_ssm.ipynb
-│   ├── demo_gpfa_ssm.ipynb
-│   ├── demo_lds.ipynb
-│   ├── demo_matern.ipynb            (Matérn-5/2 with exact SDE form)
-│   └── demo_custom_kernel.ipynb     (user-defined Rational Quadratic — kernel-as-axis tutorial)
-└── v1v2/           # real-data co-smoothing on V1/V2 visual-cortex recordings
-    ├── demo_adm.ipynb / demo_dlag.ipynb / demo_dlag_ssm.ipynb
-    ├── demo_mdlag_time.ipynb / demo_mdlag_freq.ipynb / demo_mdlag_ssm.ipynb
-    └── demo_custom_kernel.ipynb
+├── nb_helpers.py                       # shared plotting / ARD-aware helpers used by every notebook
+├── synthetic/                          # delay recovery on synthetic GP data
+│   ├── demo_adm.ipynb                  # GP-SSM, time-varying delay
+│   ├── demo_dlag.ipynb                 # dense exact GP, constant delay
+│   ├── demo_dlag_ssm.ipynb             # GP-SSM, constant delay
+│   ├── demo_mdlag_time.ipynb           # dense exact GP + ARD (time-domain)
+│   ├── demo_mdlag_freq.ipynb           # dense exact GP + ARD (frequency-domain circulant)
+│   ├── demo_mdlag_ssm.ipynb            # GP-SSM + ARD
+│   ├── demo_gpfa_ssm.ipynb             # GP-SSM, no delay (shared-only baseline)
+│   ├── demo_lds.ipynb                  # free SSM (no GP prior; no-kernel baseline)
+│   ├── demo_matern.ipynb               # GP-SSM via exact SDE (Matérn-5/2)
+│   └── demo_custom_kernel.ipynb        # GP-SSM with user-defined Rational Quadratic kernel — tutorial
+└── v1v2/                               # held-out-neuron co-smoothing on V1/V2 visual cortex
+    ├── demo_adm.ipynb                  # GP-SSM, time-varying delay
+    ├── demo_dlag.ipynb                 # dense exact GP, constant delay
+    ├── demo_dlag_ssm.ipynb             # GP-SSM, constant delay
+    ├── demo_mdlag_time.ipynb           # dense exact GP + ARD (time-domain)
+    ├── demo_mdlag_freq.ipynb           # dense exact GP + ARD (frequency-domain circulant)
+    ├── demo_mdlag_ssm.ipynb            # GP-SSM + ARD
+    └── demo_custom_kernel.ipynb        # GP-SSM with user-defined Rational Quadratic kernel
 ```
 
-Every notebook begins with a markdown banner stating the engine class
-(dense exact GP / SSM-GP / SSM-GP exact-SDE / free SSM), a config
-table, then runs the full fit-evaluate-plot pipeline. Diagnostic
-figures are produced inline using shared helpers in
+Every notebook begins with a markdown banner stating the engine class,
+a config table, then runs the full fit-evaluate-plot pipeline.
+Diagnostic figures are produced inline using shared helpers in
 [`notebooks/nb_helpers.py`](notebooks/nb_helpers.py).
 
 ### CLI scripts (for sweeps / SLURM)
 
 ```
 examples/
-├── synthetic/      # same as notebooks/synthetic/ but CLI
-│   ├── demo_adm.py / demo_dlag.py / demo_dlag_ssm.py
-│   ├── demo_mdlag_time.py / demo_mdlag_freq.py / demo_mdlag_ssm.py
-│   ├── demo_gpfa_ssm.py / demo_lds.py
-│   ├── demo_matern.py / demo_custom_kernel.py
-│   └── demo_common.py
-└── v1v2/           # same as notebooks/v1v2/ but CLI
-    ├── demo_adm.py / demo_dlag.py / demo_dlag_ssm.py
-    ├── demo_mdlag_time.py / demo_mdlag_freq.py / demo_mdlag_ssm.py
-    ├── demo_custom_kernel.py
-    └── v1v2_common.py
+├── synthetic/                          # same model coverage as notebooks/synthetic/
+│   ├── demo_adm.py                     # GP-SSM, time-varying delay
+│   ├── demo_dlag.py                    # dense exact GP, constant delay
+│   ├── demo_dlag_ssm.py                # GP-SSM, constant delay
+│   ├── demo_mdlag_time.py              # dense exact GP + ARD (time-domain)
+│   ├── demo_mdlag_freq.py              # dense exact GP + ARD (frequency-domain circulant)
+│   ├── demo_mdlag_ssm.py               # GP-SSM + ARD
+│   ├── demo_gpfa_ssm.py                # GP-SSM, no delay
+│   ├── demo_lds.py                     # free SSM (no kernel)
+│   ├── demo_matern.py                  # GP-SSM via exact SDE (Matérn-5/2)
+│   ├── demo_custom_kernel.py           # GP-SSM with user-defined Rational Quadratic kernel
+│   └── demo_common.py                  # shared eval / plotting / I/O helpers
+└── v1v2/                               # same model coverage as notebooks/v1v2/
+    ├── demo_adm.py                     # GP-SSM, time-varying delay
+    ├── demo_dlag.py                    # dense exact GP, constant delay
+    ├── demo_dlag_ssm.py                # GP-SSM, constant delay
+    ├── demo_mdlag_time.py              # dense exact GP + ARD (time-domain)
+    ├── demo_mdlag_freq.py              # dense exact GP + ARD (frequency-domain circulant)
+    ├── demo_mdlag_ssm.py               # GP-SSM + ARD
+    ├── demo_custom_kernel.py           # GP-SSM with user-defined Rational Quadratic kernel
+    └── v1v2_common.py                  # shared V1/V2 loader / split / co-smoothing helpers
 ```
 
 Each CLI demo accepts `--help` for the full flag list.
@@ -247,16 +268,16 @@ delay-recovery RMSE against truth.
 
 ```bash
 # CLI (one method per command)
-uv run python examples/synthetic/demo_adm.py
-uv run python examples/synthetic/demo_dlag.py            # exact-GP DLAG
-uv run python examples/synthetic/demo_dlag_ssm.py        # SSM-GP DLAG
-uv run python examples/synthetic/demo_mdlag_time.py      # dense time-domain mDLAG
-uv run python examples/synthetic/demo_mdlag_freq.py      # frequency-domain mDLAG
-uv run python examples/synthetic/demo_mdlag_ssm.py       # mDLAG-SSM (Kalman + ARD)
-uv run python examples/synthetic/demo_gpfa_ssm.py        # shared-only SSM-GP, no delay
-uv run python examples/synthetic/demo_lds.py             # free-SSM baseline
-uv run python examples/synthetic/demo_matern.py          # Matérn-5/2 kernel
-uv run python examples/synthetic/demo_custom_kernel.py   # custom RQ kernel
+uv run python examples/synthetic/demo_adm.py             # GP-SSM, time-varying delay
+uv run python examples/synthetic/demo_dlag.py            # dense exact GP, constant delay
+uv run python examples/synthetic/demo_dlag_ssm.py        # GP-SSM, constant delay
+uv run python examples/synthetic/demo_mdlag_time.py      # dense exact GP + ARD (time-domain)
+uv run python examples/synthetic/demo_mdlag_freq.py      # dense exact GP + ARD (frequency-domain circulant)
+uv run python examples/synthetic/demo_mdlag_ssm.py       # GP-SSM + ARD
+uv run python examples/synthetic/demo_gpfa_ssm.py        # GP-SSM, no delay (shared-only baseline)
+uv run python examples/synthetic/demo_lds.py             # free SSM (no kernel)
+uv run python examples/synthetic/demo_matern.py          # GP-SSM via exact SDE (Matérn-5/2)
+uv run python examples/synthetic/demo_custom_kernel.py   # GP-SSM with user-defined Rational Quadratic kernel
 ```
 
 Each run writes per-pair delay overlays, per-region latent traces, y

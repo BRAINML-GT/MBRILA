@@ -1,4 +1,4 @@
-"""Plotting helpers for the mbrila CF7 model-zoo notebooks.
+"""Plotting helpers for the mbrila model-zoo notebooks.
 
 Each notebook (``notebooks/demo_*.ipynb``) builds one model on the
 canonical demo synthetic scenario, fits it, then calls these helpers
